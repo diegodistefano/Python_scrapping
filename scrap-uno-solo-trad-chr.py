@@ -5,39 +5,117 @@ import pyautogui
 import pyperclip
 from selenium import webdriver
 from selenium.webdriver.common.action_chains import ActionChains
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver import Chrome  # Cambiado de Firefox a Chrome
+from selenium.webdriver.chrome.service import Service  # Cambiado de firefox a chrome
+from selenium.webdriver.chrome.options import Options  # Cambiado de firefox a chrome
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
+import random
+from fake_useragent import UserAgent
+from langdetect import detect
 
-
-# Configuración del logger
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+# Configuración de logging (igual que antes)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configuraciones
-DIRECTORIO_CAPTURAS = "capturas"
-URL_CAPITULO = "https://www.royalroad.com/fiction/74124/road-to-mastery-a-litrpg-adventure/chapter/1393710/true-north"
-TIEMPO_ESPERA = 10
+# Configuración global
+MAX_REINTENTOS = 3
+ESPERA_ENTRE_CAPITULOS = random.uniform(2, 5)
+TEXTO_APOYO = "Somos Klan Otaku Novelas Ligeras. Apoyanos en Patreon para más contenido.\n\n"
+DIRECTORIO_GUARDADO = "D:/PRUEBAS/scrapping/descargas"
+os.makedirs(DIRECTORIO_GUARDADO, exist_ok=True)
 
-if not os.path.exists(DIRECTORIO_CAPTURAS):
-    os.makedirs(DIRECTORIO_CAPTURAS)
+IDIOMA_ORIGINAL = "en"  # Inglés (idioma original del sitio)
+IDIOMA_DESEADO = "es"    # Español (idioma al que se traduce)
 
-def iniciar_driver():
-    chrome_driver_path = "D:/recursos-navegador/chromedriver-win64/chromedriver.exe"
+def get_random_user_agent():
+    ua = UserAgent()
+    return ua.random
 
-    options = Options()
-    options.add_argument("--start-maximized")
-    options.add_experimental_option("detach", True)
+def configurar_driver():
+    """Configura el driver de Chrome """
+    for intento in range(MAX_REINTENTOS):
+        try:
+            logger.info(f"🥚 Configurando Chrome (Intento {intento+1}/{MAX_REINTENTOS})...")
 
-    driver = webdriver.Chrome(service=Service(chrome_driver_path), options=options)
-    return driver
+            options = Options()  # Ahora es ChromeOptions
+            # options.add_argument("--headless=new")  # Modo headless en Chrome
+            options.add_argument(f"user-agent={get_random_user_agent()}")  # User-Agent aleatorio
+            options.add_argument("--disable-blink-features=AutomationControlled")  # Evita detección de bot
+            options.add_argument('--no-sandbox')
+            options.add_argument('--disable-dev-shm-usage')
+            
+            # Configuración de idioma (Chrome usa --lang)
+            options.add_argument('--lang=es')  # Forzar idioma del navegador
+            options.add_argument('--force-language-detection=es')  # Detección de idioma
+            prefs = {
+                "translate_whitelists": {"en":"es"},  # Traducir inglés -> español
+                "translate":{"enabled":"true"}
+            }
+            options.add_experimental_option("prefs", prefs)
+            # ... (resto del código)
+
+            # Ruta a chromedriver.exe (¡descárgalo y colócalo en tu sistema!)
+            service = Service(executable_path=r"D:/recursos-navegador/chromedriver-win64/chromedriver.exe")  # Cambiado a chromedriver
+
+            driver = Chrome(service=service, options=options)  # Ahora es Chrome, no Firefox
+
+            driver.get("about:blank")
+            logger.info("✅ Chrome configurado exitosamente")
+            return driver
+
+        except Exception as e:
+            logger.error(f"⚠️ Error en intento {intento+1}: {str(e)}")
+            if intento == MAX_REINTENTOS - 1:
+                logger.critical("💥 No se pudo configurar Chrome")
+                raise
+            time.sleep(2)
+
 
 def pausa_humana(seg=1.5):
     time.sleep(seg)
 
-def hacer_scroll_visible(driver):
+def obtener_nombre_novela(url):
+    """Extrae el nombre de la novela desde la URL"""
+    partes = url.split("/")
+    return partes[5].replace("-", " ").title().replace(" ", "")
+
+
+def verificar_idioma(texto):
+    try:
+        return detect(texto) == 'es'  # True si es español
+    except:
+        return False
+
+def forzar_traduccion(driver):
+    """Intenta activar la traducción si el sitio lo permite"""
+    try:
+        # Ejemplo: Busca y hace clic en el botón de traducción si existe
+        boton_traduccion = WebDriverWait(driver, 5).until(
+            EC.element_to_be_clickable((By.XPATH, "//*[contains(text(), 'Translate') or contains(text(), 'Traducir')]"))
+        )
+        boton_traduccion.click()
+        logger.info("🔁 Activando traducción mediante botón")
+        return True
+    except:
+        return False
+
+def esperar_traduccion_completa(driver, locator, timeout=30):
+    """Espera que el contenido traducido esté completamente cargado en el DOM"""
+    WebDriverWait(driver, timeout).until(
+        EC.presence_of_element_located(locator)
+    )
+    # Verifica que el contenido traducido esté presente en el DOM
+    elemento = driver.find_element(*locator)
+    while "Text in english" in elemento.text:  # Compara el texto original con el contenido traducido
+        time.sleep(1)  # Espera un poco más
+        elemento = driver.find_element(*locator)  # Actualiza el elemento
+    return elemento
+
+def hacer_scroll_completo(driver):
     altura_total = driver.execute_script("return document.body.scrollHeight")
     logger.info(f"Haciendo scroll visible (Altura total: {altura_total}px)")
 
@@ -54,99 +132,109 @@ def hacer_scroll_visible(driver):
     driver.execute_script("window.scrollTo(0, 0);")
     logger.info("Scroll visible completado")
 
-def traducir_con_click_derecho():
-    # Asegúrate de que el navegador está enfocado
-    pyautogui.click(760, 700)  # Haz clic para asegurarte de que el navegador está en foco
-    time.sleep(4)  # Espera un poco más para asegurarse de que el navegador está activo
-
-    # Mover mouse al centro del texto
-    logger.info(f"Moviendo mouse al centro del texto: (760, 3129)")
-    pyautogui.moveTo(760, 700)
-
-    logger.info("Traduciendo con clic derecho + tecla T...")
-    pausa_humana(1)  # Espera por si hay animaciones
-    pyautogui.rightClick()
-    time.sleep(0.5)
-    pyautogui.press('t')  # Asume que 'T' activa la traducción
-    pausa_humana(2)  # Espera a que se traduzca
-
-def procesar_capitulo(driver, url, contador_global):
-    logger.info(f"Procesando capítulo {contador_global}: {url}")
-    driver.get(url)
-
+def obtener_texto_traducido(driver, locator):
+    """Obtiene el texto traducido desde el DOM renderizado completamente"""
     try:
-        WebDriverWait(driver, TIEMPO_ESPERA).until(
-            EC.presence_of_element_located((By.CLASS_NAME, "chapter-content"))
+        elemento = WebDriverWait(driver, 20).until(
+            EC.presence_of_element_located(locator)
         )
-        pausa_humana()
-    except Exception as e:
-        logger.warning("No se encontró el contenido del capítulo: " + str(e))
-        return None
-
-    try:
-        close_button = WebDriverWait(driver, 5).until(
-            EC.element_to_be_clickable((By.XPATH, "/html/body/div[8]/div/div/div[3]/div[1]/button[2]"))
-        )
-        close_button.click()
-        pausa_humana()
-        logger.info("Banner cerrado.")
-    except Exception as e:
-        logger.warning("No se pudo cerrar el banner: " + str(e))
-
-    try:
-        pantalla = driver.find_element(By.CLASS_NAME, "chapter-content")
-
-        # Mover el mouse al centro del contenido para hacer clic derecho ahí
-        location = pantalla.location
-        size = pantalla.size
-        centro_x = location['x'] + size['width'] // 2
-        centro_y = location['y'] + size['height'] // 2
-        logger.info(f"Mover mouse al centro del texto: ({centro_x}, {centro_y})")
-
-        # Desplazar scroll para que esté en pantalla
-        driver.execute_script("arguments[0].scrollIntoView(true);", pantalla)
-        pausa_humana()
-
-        # Mover mouse y simular clic derecho + T
-        pyautogui.moveTo(centro_x, centro_y + 150)  # ajustamos por barra de título/navegador
-        traducir_con_click_derecho()
-
-        hacer_scroll_visible(driver)
-
-        cuerpo = driver.find_element(By.CLASS_NAME, "chapter-content")
-
-        # Mover el mouse y copiar como humano
-        location = cuerpo.location
-        size = cuerpo.size
-        centro_x = location['x'] + size['width'] // 2
-        centro_y = location['y'] + size['height'] // 2
-        pyautogui.moveTo(centro_x, centro_y)
-        pyautogui.rightClick()
-        time.sleep(0.5)
-        pyautogui.hotkey('ctrl', 'a')
-        time.sleep(0.2)
-        pyautogui.hotkey('ctrl', 'c')
-        time.sleep(0.5)
-        texto = pyperclip.paste()
-        
+        # Verifica que el texto traducido esté visible y no el texto original
+        texto = elemento.text
+        if "Text in english" in texto:  # Asegúrate de que no estás obteniendo el texto original
+            logger.warning("⚠️ Se obtuvo el texto original en lugar del traducido.")
+            return None
         return texto
-    except Exception as e:
-        logger.error(f"Error al obtener el texto del capítulo: {e}")
+    except TimeoutException:
+        logger.error("❌ Tiempo de espera agotado para obtener el texto traducido.")
         return None
 
-def guardar_texto(texto, archivo):
-    with open(archivo, "a", encoding="utf-8") as f:
-        f.write(texto + "\n\n")
-    logger.info(f"Capítulo guardado en {archivo}")
+def procesar_capitulo(driver, url, file, contador_archivo, contador_global):
+    try:
+        driver.get(url)
+
+        ##############################################################
+        time.sleep(8)  # Espera inicial para cargar la página
+        ##############################################################
+        pausa_humana()
+
+        # Cerrar banners si existen
+        try:
+            driver.find_element(By.XPATH, "//button[contains(text(), 'Accept')]").click()
+            logger.info("✅ Banner cerrado")
+            pausa_humana()
+        except NoSuchElementException:
+            pass
+
+        # Esperar a que la traducción se complete
+        titulo = esperar_traduccion_completa(driver, (By.TAG_NAME, "h1"))
+        if not titulo:
+            titulo = WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.TAG_NAME, "h1")))
+            logger.warning("⚠️ No se pudo verificar la traducción del título")
+
+        cuerpo = esperar_traduccion_completa(driver, (By.CLASS_NAME, "chapter-content"))
+
+        
+        # Scroll completo (bajar + subir)
+        hacer_scroll_completo(driver)
+        
+        # Espera adicional para traducción
+        time.sleep(5)
+
+        if not cuerpo:
+            cuerpo = WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.CLASS_NAME, "chapter-content")))
+            logger.warning("⚠️ No se pudo verificar la traducción del contenido")
+
+        # Verificar si el contenido está en el idioma deseado
+        if not verificar_idioma(cuerpo.text):
+            logger.warning("⚠️ El contenido no está en el idioma deseado")
+
+        # Guardar texto tal como aparece
+        file.write(f"\n{titulo.text}\n\n{cuerpo.text}\n\n")
+        logger.info(f"📖 Capítulo {contador_global} guardado (local: {contador_archivo})")
+
+        # Texto de apoyo estratégico
+        if contador_archivo in [5, 10]:
+            file.write(TEXTO_APOYO)
+
+        return True
+
+    except Exception as e:
+        logger.error(f"❌ Error procesando capítulo: {str(e)}")
+        return False
 
 def main():
-    driver = iniciar_driver()
     try:
-        texto = procesar_capitulo(driver, URL_CAPITULO, 1)
-        if texto:
-            guardar_texto(texto, "novela_traducida.txt")
+        driver = configurar_driver()
+        url_base = "https://www.royalroad.com/fiction/33844/the-runesmith/chapter/520102/chapter-1-so-it-begins-with-a-truck"
+        novela_nombre = obtener_nombre_novela(url_base)
+
+        contador_global = 1
+        contador_archivo = 1
+        file = None
+
+        # Manejo de archivos (se procesará solo una página)
+        if contador_archivo == 1:
+            if file:
+                file.close()
+            nombre_archivo = f"{DIRECTORIO_GUARDADO}/{novela_nombre}-{contador_global}.txt"
+            file = open(nombre_archivo, "w", encoding="utf-8")
+            file.write(TEXTO_APOYO)
+
+        # Procesar capítulo actual
+        if not procesar_capitulo(driver, url_base, file, contador_archivo, contador_global):
+            return
+
+        logger.info("✅ Proceso completado")
+
+    except Exception as e:
+        logger.error(f"💥 Error global: {str(e)}")
+        if file:
+            file.close()
+            os.rename(nombre_archivo, f"{DIRECTORIO_GUARDADO}/{novela_nombre}-INTERRUMPIDO-{contador_global-1}.txt")
     finally:
-        driver.quit()
+        if 'driver' in locals():
+            driver.quit()
+            logger.info("🛌 Navegador cerrado correctamente")
 
 if __name__ == "__main__":
-    main()
+    main()  # Todo lo demás funciona igual.
