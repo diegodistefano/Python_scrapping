@@ -111,7 +111,15 @@ def hacer_scroll_completo(driver):
         time.sleep(0.2)
     driver.execute_script("window.scrollTo(0, 0);")
 
-def procesar_capitulo(driver, url, file, contador_archivo, contador_global):
+def procesar_capitulo(driver, url, file, contador_archivo, contador_global, ultima_peticion=None):
+    # Control de peticiones por minuto
+    if ultima_peticion:
+        tiempo_transcurrido = time.time() - ultima_peticion
+        if tiempo_transcurrido < 30:  # Ej: max 2 peticiones por minuto
+            espera = 30 - tiempo_transcurrido
+            logger.info(f"🕒 Esperando {espera:.2f} segundos para evitar sobrecarga de peticiones...")
+            time.sleep(espera)
+            
     try:
         driver.get(url)
         time.sleep(8)
@@ -139,31 +147,34 @@ def procesar_capitulo(driver, url, file, contador_archivo, contador_global):
 
         if contador_archivo in [5, 10]:
             file.write(TEXTO_APOYO)
-
-        return True
+        
+        return True, time.time()
+    
     except Exception as e:
         logger.error(f"Error procesando capítulo: {e}")
         return False
 
 def main():
+    ultima_peticion = None
     driver = None
     file = None
     try:
         driver = configurar_driver()
         url = "https://www.royalroad.com/fiction/21220/mother-of-learning/chapter/301778/1-good-morning-brother"
         nombre_novela = obtener_nombre_novela(url)
-
+        
         contador_global = 1
         contador_archivo = 1
         nombre_archivo = f"{DIRECTORIO_GUARDADO}/{nombre_novela}-{contador_global}.txt"
         file = open(nombre_archivo, "w", encoding="utf-8")
         file.write(TEXTO_APOYO)
-
-        if not procesar_capitulo(driver, url, file, contador_archivo, contador_global):
+   
+        exito, ultima_peticion = procesar_capitulo(driver, url, file, contador_archivo, contador_global, ultima_peticion)
+        if not exito:
             return
 
         logger.info("Proceso completado")
-
+        
     except Exception as e:
         logger.error(f"Error global: {e}")
         if file:
