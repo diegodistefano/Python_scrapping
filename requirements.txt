@@ -1,0 +1,6 @@
+pyautogui
+selenium
+fake_useragent
+langdetect
+beautifulsoup4
+webdriver-manager
