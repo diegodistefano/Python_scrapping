@@ -17,7 +17,6 @@ from langdetect import detect
 from bs4 import BeautifulSoup
 
 
-# Configuración global
 MAX_REINTENTOS = 3
 DESCARGAS_ESP = "D:/PRUEBAS/scrapping/descargas/novelas_esp"
 DESCARGAS_ENG = "D:/PRUEBAS/scrapping/descargas/novelas_eng"
@@ -65,31 +64,23 @@ def obtener_nombre_novela(URL):
     return URL.split("/")[5].replace("-", "").title()
 
 def obtener_contenido_original(driver):
-    """Obtiene el título y cuerpo del capítulo en su idioma original sin interactuar con el DOM."""
     try:
-        # Obtener el código fuente de la página
         codigo_fuente = driver.page_source
-        
-        # Crear un objeto BeautifulSoup para analizar el código fuente
         soup = BeautifulSoup(codigo_fuente, 'html.parser')
         
-        # Buscar el título y el cuerpo en el código fuente
-        titulo_original = soup.find('h1')  # Buscar la primera etiqueta <h1>
-        cuerpo_original = soup.find('div', class_='chapter-content')  # Buscar el <div> con la clase "chapter-content"
+        titulo_original = soup.find('h1')  
+        cuerpo_original = soup.find('div', class_='chapter-content') 
 
-        # Verificar si se encontró el título y el cuerpo
         if titulo_original and cuerpo_original:
             return titulo_original, cuerpo_original
         else:
             logger.error("❌ No se encontró el título o el cuerpo en el código fuente")
             return None, None
-
     except Exception as e:
         logger.error(f"❌ Error al obtener contenido original: {str(e)}")
         return None, None
 
 def guardar_capitulo_original(titulo, cuerpo, nombre_novela, contador_global):
-    """Guarda el título y el cuerpo en su idioma original (sin traducir)."""
     try:
         nombre_archivo_original = f"{DESCARGAS_ENG}/{nombre_novela}-{contador_global}-english.txt"
         with open(nombre_archivo_original, "w", encoding="utf-8") as file_original:
@@ -100,7 +91,6 @@ def guardar_capitulo_original(titulo, cuerpo, nombre_novela, contador_global):
         logger.error(f"❌ Error al guardar el capítulo original: {str(e)}")
 
 def realizar_traduccion(driver):
-    """Espera y obtiene el contenido traducido."""
     try:
         titulo_traducido = esperar_traduccion(driver, (By.TAG_NAME, "h1"))
         cuerpo_traducido = esperar_traduccion(driver, (By.CLASS_NAME, "chapter-content"))
@@ -110,14 +100,11 @@ def realizar_traduccion(driver):
         return None, None
 
 def guardar_capitulo_traducido(file, titulo, cuerpo):
-    """Guarda el título y cuerpo traducidos en el archivo de salida."""
     try:
         file.write(f"\n{titulo.text}\n\n{cuerpo.text}\n\n")
         logger.info("✅ Capítulo traducido guardado.")
     except Exception as e:
         logger.error(f"❌ Error al guardar el capítulo traducido: {str(e)}")
-
-
 
 
 def verificar_idioma(texto):
@@ -149,10 +136,9 @@ def hacer_scroll_completo(driver):
     driver.execute_script("window.scrollTo(0, 0);")
 
 def procesar_capitulo(driver, URL, file, contador_archivo, contador_global, ultima_peticion=None):
-    # Control de peticiones por minuto
     if ultima_peticion:
         tiempo_transcurrido = time.time() - ultima_peticion
-        if tiempo_transcurrido < 30:  # Ej: max 2 peticiones por minuto
+        if tiempo_transcurrido < 30: 
             espera = 30 - tiempo_transcurrido
             logger.info(f"🕒 Esperando {espera:.2f} segundos para evitar sobrecarga de peticiones...")
             time.sleep(espera)
@@ -169,18 +155,14 @@ def procesar_capitulo(driver, URL, file, contador_archivo, contador_global, ulti
         except NoSuchElementException:
             pass
 
-        # 1. Obtener contenido original
         titulo_original, cuerpo_original = obtener_contenido_original(driver)
         if titulo_original is None or cuerpo_original is None:
             return False, ultima_peticion
-        
-        # 2. Guardar contenido original en inglés
+
         guardar_capitulo_original(titulo_original, cuerpo_original, obtener_nombre_novela(URL), contador_global)
 
-        # 3. Realizar traducción
         titulo_traducido, cuerpo_traducido = realizar_traduccion(driver)
 
-        # 4. Hacer scroll
         hacer_scroll_completo(driver)
         time.sleep(random.uniform(0.2, 0.5))
 
@@ -190,7 +172,6 @@ def procesar_capitulo(driver, URL, file, contador_archivo, contador_global, ulti
         if not verificar_idioma(cuerpo_traducido.text):
             logger.warning("Contenido posiblemente no traducido.")
 
-        # 5. Guardar contenido traducido
         guardar_capitulo_traducido(file, titulo_traducido, cuerpo_traducido)
 
         logger.info(f"Capítulo {contador_global} guardado (local: {contador_archivo})")
